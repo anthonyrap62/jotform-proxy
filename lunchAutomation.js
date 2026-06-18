@@ -1,6 +1,5 @@
 const fetch = require('node-fetch');
 const PDFDocument = require('pdfkit');
-const nodemailer = require('nodemailer');
 
 const DAYS = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday'];
 
@@ -98,6 +97,10 @@ function buildCatererPDF(orders) {
       doc.moveDown(0.8);
     });
 
+    if (orders.length === 0) {
+      doc.fontSize(12).fillColor('gray').text('No orders found for this week.');
+    }
+
     doc.end();
   });
 }
@@ -141,35 +144,51 @@ function buildLabelsPDF(orders) {
     }
 
     if (labels.length === 0) {
-      doc.fontSize(12).text('No orders this week.', 50, 50);
+      doc.fontSize(12).fillColor('black').text('No orders this week.', 50, 50);
     }
 
     doc.end();
   });
 }
 
-async function sendEmail({ gmailUser, gmailAppPassword, recipients, catererPdf, labelsPdf, orderCount }) {
-  const transporter = nodemailer.createTransport({
-    service: 'gmail',
-    auth: { user: gmailUser, pass: gmailAppPassword }
-  });
-
+async function sendEmail({ resendApiKey, fromEmail, recipients, catererPdf, labelsPdf, orderCount }) {
   const weekStr = new Date().toLocaleDateString();
 
-  await transporter.sendMail({
-    from: gmailUser,
-    to: recipients.join(', '),
+  const payload = {
+    from: fromEmail,
+    to: recipients,
     subject: `Lunch Orders - Week of ${weekStr}`,
     text: `This week's lunch orders are attached.\n\nTotal orders: ${orderCount}\n\n- Caterer summary PDF: meal counts by day\n- Labels PDF: printable Avery 5160 labels`,
     attachments: [
-      { filename: `caterer-summary-${weekStr.replace(/\//g, '-')}.pdf`, content: catererPdf },
-      { filename: `food-labels-${weekStr.replace(/\//g, '-')}.pdf`, content: labelsPdf }
+      {
+        filename: `caterer-summary-${weekStr.replace(/\//g, '-')}.pdf`,
+        content: catererPdf.toString('base64')
+      },
+      {
+        filename: `food-labels-${weekStr.replace(/\//g, '-')}.pdf`,
+        content: labelsPdf.toString('base64')
+      }
     ]
+  };
+
+  const r = await fetch('https://api.resend.com/emails', {
+    method: 'POST',
+    headers: {
+      'Authorization': `Bearer ${resendApiKey}`,
+      'Content-Type': 'application/json'
+    },
+    body: JSON.stringify(payload)
   });
+
+  const result = await r.json();
+  if (!r.ok) {
+    throw new Error('Resend error: ' + JSON.stringify(result));
+  }
+  return result;
 }
 
 async function runWeeklyLunchAutomation(config) {
-  const { jotformApiKey, jotformFormId, gmailUser, gmailAppPassword, recipients } = config;
+  const { jotformApiKey, jotformFormId, resendApiKey, fromEmail, recipients } = config;
 
   console.log('Fetching submissions...');
   const allSubs = await fetchSubmissions(jotformApiKey, jotformFormId);
@@ -187,8 +206,8 @@ async function runWeeklyLunchAutomation(config) {
     buildLabelsPDF(orders)
   ]);
 
-  console.log('Sending email...');
-  await sendEmail({ gmailUser, gmailAppPassword, recipients, catererPdf, labelsPdf, orderCount: orders.length });
+  console.log('Sending email via Resend...');
+  await sendEmail({ resendApiKey, fromEmail, recipients, catererPdf, labelsPdf, orderCount: orders.length });
 
   console.log('Done!');
   return { orderCount: orders.length };
