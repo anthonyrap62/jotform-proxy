@@ -1,11 +1,9 @@
 const fetch = require('node-fetch');
 const PDFDocument = require('pdfkit');
 const nodemailer = require('nodemailer');
-const { Readable } = require('stream');
 
 const DAYS = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday'];
 
-// ---------- 1. Fetch submissions from JotForm ----------
 async function fetchSubmissions(apiKey, formId) {
   const url = `https://api.jotform.com/form/${formId}/submissions?apiKey=${apiKey}&limit=1000&orderby=created_at,DESC`;
   const r = await fetch(url);
@@ -14,8 +12,6 @@ async function fetchSubmissions(apiKey, formId) {
   return d.content || [];
 }
 
-// ---------- 2. Parse submissions into structured orders ----------
-// Adjust the field name matching below if your form field labels differ
 function parseOrders(submissions) {
   const orders = [];
 
@@ -34,10 +30,8 @@ function parseOrders(submissions) {
       } else if (label.includes("division")) {
         division = value;
       } else {
-        // Check if this field corresponds to a day-of-week product field
         for (const day of DAYS) {
           if (label.includes(day.toLowerCase())) {
-            // value may be an object (product field) — extract meal selection text
             let mealText = '';
             if (typeof value === 'string') mealText = value;
             else if (value && typeof value === 'object') {
@@ -59,11 +53,10 @@ function parseOrders(submissions) {
   return orders;
 }
 
-// ---------- 3. Filter to only this week's submissions ----------
 function filterThisWeek(submissions) {
   const now = new Date();
   const start = new Date(now);
-  start.setDate(now.getDate() - now.getDay()); // back to Sunday
+  start.setDate(now.getDate() - now.getDay());
   start.setHours(0, 0, 0, 0);
 
   return submissions.filter(s => {
@@ -72,7 +65,6 @@ function filterThisWeek(submissions) {
   });
 }
 
-// ---------- 4. Build caterer summary PDF ----------
 function buildCatererPDF(orders) {
   return new Promise((resolve) => {
     const doc = new PDFDocument({ margin: 50 });
@@ -80,7 +72,7 @@ function buildCatererPDF(orders) {
     doc.on('data', c => chunks.push(c));
     doc.on('end', () => resolve(Buffer.concat(chunks)));
 
-    doc.fontSize(18).text('Weekly Lunch Order — Caterer Summary', { align: 'center' });
+    doc.fontSize(18).text('Weekly Lunch Order - Caterer Summary', { align: 'center' });
     doc.fontSize(10).fillColor('gray').text(`Generated ${new Date().toLocaleDateString()}`, { align: 'center' });
     doc.moveDown(1.5);
     doc.fillColor('black');
@@ -110,10 +102,8 @@ function buildCatererPDF(orders) {
   });
 }
 
-// ---------- 5. Build Avery 5160 label PDF ----------
 function buildLabelsPDF(orders) {
   return new Promise((resolve) => {
-    // Avery 5160: 3 columns x 10 rows, 2.625in x 1in labels, letter page
     const doc = new PDFDocument({ size: 'LETTER', margin: 0 });
     const chunks = [];
     doc.on('data', c => chunks.push(c));
@@ -158,7 +148,6 @@ function buildLabelsPDF(orders) {
   });
 }
 
-// ---------- 6. Send email with attachments ----------
 async function sendEmail({ gmailUser, gmailAppPassword, recipients, catererPdf, labelsPdf, orderCount }) {
   const transporter = nodemailer.createTransport({
     service: 'gmail',
@@ -170,7 +159,7 @@ async function sendEmail({ gmailUser, gmailAppPassword, recipients, catererPdf, 
   await transporter.sendMail({
     from: gmailUser,
     to: recipients.join(', '),
-    subject: `Lunch Orders — Week of ${weekStr}`,
+    subject: `Lunch Orders - Week of ${weekStr}`,
     text: `This week's lunch orders are attached.\n\nTotal orders: ${orderCount}\n\n- Caterer summary PDF: meal counts by day\n- Labels PDF: printable Avery 5160 labels`,
     attachments: [
       { filename: `caterer-summary-${weekStr.replace(/\//g, '-')}.pdf`, content: catererPdf },
@@ -179,7 +168,6 @@ async function sendEmail({ gmailUser, gmailAppPassword, recipients, catererPdf, 
   });
 }
 
-// ---------- Main runner ----------
 async function runWeeklyLunchAutomation(config) {
   const { jotformApiKey, jotformFormId, gmailUser, gmailAppPassword, recipients } = config;
 
