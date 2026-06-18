@@ -38,20 +38,20 @@ function getConfig() {
   const {
     JOTFORM_API_KEY,
     JOTFORM_FORM_ID,
-    GMAIL_USER,
-    GMAIL_APP_PASSWORD,
+    RESEND_API_KEY,
+    FROM_EMAIL,
     RECIPIENT_EMAILS
   } = process.env;
 
-  if (!JOTFORM_API_KEY || !JOTFORM_FORM_ID || !GMAIL_USER || !GMAIL_APP_PASSWORD || !RECIPIENT_EMAILS) {
+  if (!JOTFORM_API_KEY || !JOTFORM_FORM_ID || !RESEND_API_KEY || !FROM_EMAIL || !RECIPIENT_EMAILS) {
     throw new Error('Missing required environment variables. Check Railway Variables tab.');
   }
 
   return {
     jotformApiKey: JOTFORM_API_KEY,
     jotformFormId: JOTFORM_FORM_ID,
-    gmailUser: GMAIL_USER,
-    gmailAppPassword: GMAIL_APP_PASSWORD,
+    resendApiKey: RESEND_API_KEY,
+    fromEmail: FROM_EMAIL,
     recipients: RECIPIENT_EMAILS.split(',').map(e => e.trim())
   };
 }
