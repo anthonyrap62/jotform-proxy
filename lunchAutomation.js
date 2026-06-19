@@ -38,16 +38,16 @@ function parseOrders(submissions) {
       } else if (label.includes("division")) {
         division = toText(value);
       } else {
-        for (const day of DAYS) {
+for (const day of DAYS) {
           if (label.startsWith(day.toLowerCase())) {
-            const mealText = toText(value);
+            let mealText = toText(value);
+            // Strip trailing price like "$3.12" or "($3.12)" from the meal text
+            mealText = mealText.replace(/\s*\(?\$\d+(\.\d{1,2})?\)?\s*$/, '').trim();
             if (mealText && mealText.toLowerCase() !== 'no meal' && mealText !== '-') {
               meals[day] = mealText;
             }
           }
         }
-      }
-    }
 
     if (child && Object.keys(meals).length > 0) {
       orders.push({ child: child.trim(), division: division.trim(), meals });
