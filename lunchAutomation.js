@@ -21,23 +21,28 @@ function parseOrders(submissions) {
 
     for (const key in answers) {
       const a = answers[key];
-      const label = (a.text || a.name || '').toLowerCase();
+      const label = (a.text || a.name || '').toLowerCase().trim();
       const value = a.answer || a.prettyFormat || '';
 
-      if (label.includes("camper") && label.includes("name")) {
-        child = typeof value === 'string' ? value : (value.first || '') + ' ' + (value.last || '');
+      function toText(v) {
+        if (typeof v === 'string') return v.trim();
+        if (v && typeof v === 'object') {
+          if (v.first || v.last) return `${v.first || ''} ${v.last || ''}`.trim();
+          return Object.values(v).filter(Boolean).join(' ').trim();
+        }
+        return '';
+      }
+
+      if (label === "camper's name" || (label.includes("camper") && label.includes("name"))) {
+        child = toText(value);
       } else if (label.includes("division")) {
-        division = value;
+        division = toText(value);
       } else {
         for (const day of DAYS) {
-          if (label.includes(day.toLowerCase())) {
-            let mealText = '';
-            if (typeof value === 'string') mealText = value;
-            else if (value && typeof value === 'object') {
-              mealText = value.productName || value.options || JSON.stringify(value);
-            }
-            if (mealText && mealText.trim() && mealText.toLowerCase() !== 'no meal') {
-              meals[day] = mealText.trim();
+          if (label.startsWith(day.toLowerCase())) {
+            const mealText = toText(value);
+            if (mealText && mealText.toLowerCase() !== 'no meal' && mealText !== '-') {
+              meals[day] = mealText;
             }
           }
         }
