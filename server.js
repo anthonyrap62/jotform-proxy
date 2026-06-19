@@ -56,13 +56,20 @@ function getConfig() {
   };
 }
 
-async function setFormStatus(apiKey, formId, status) {
+async function setFormAvailability(apiKey, formId, available) {
   const url = `https://api.jotform.com/form/${formId}/properties?apiKey=${apiKey}`;
   const params = new URLSearchParams();
-  params.append('properties[status]', status);
-  if (status === 'DISABLED') {
-    params.append('properties[messageOfLimitedForm]', 'Ordering for next week is now closed. Our form will reopen Sunday so orders can be placed for the following week.');
+
+  if (available) {
+    params.append('properties[expireDate]', '2099-12-31 23:59');
+  } else {
+    const past = new Date(Date.now() - 60000);
+    const pad = n => String(n).padStart(2, '0');
+    const formatted = `${past.getFullYear()}-${pad(past.getMonth() + 1)}-${pad(past.getDate())} ${pad(past.getHours())}:${pad(past.getMinutes())}`;
+    params.append('properties[expireDate]', formatted);
+    params.append('properties[messageOfLimitedForm]', 'Ordering for next week is now closed. Our form will reopen Monday so orders can be placed for the following week.');
   }
+
   const r = await fetch(url, {
     method: 'POST',
     headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
@@ -70,7 +77,7 @@ async function setFormStatus(apiKey, formId, status) {
   });
   const data = await r.json();
   if (data.responseCode !== 200) {
-    throw new Error(`Failed to set form status to ${status}: ` + JSON.stringify(data));
+    throw new Error(`Failed to set form availability: ` + JSON.stringify(data));
   }
   return data;
 }
@@ -89,7 +96,7 @@ app.get('/run-lunch-automation', async (req, res) => {
 app.get('/disable-form', async (req, res) => {
   try {
     const { JOTFORM_API_KEY, JOTFORM_FORM_ID } = process.env;
-    const result = await setFormStatus(JOTFORM_API_KEY, JOTFORM_FORM_ID, 'DISABLED');
+    const result = await setFormAvailability(JOTFORM_API_KEY, JOTFORM_FORM_ID, false);
     res.json({ success: true, result });
   } catch (e) {
     console.error(e);
@@ -100,7 +107,7 @@ app.get('/disable-form', async (req, res) => {
 app.get('/enable-form', async (req, res) => {
   try {
     const { JOTFORM_API_KEY, JOTFORM_FORM_ID } = process.env;
-    const result = await setFormStatus(JOTFORM_API_KEY, JOTFORM_FORM_ID, 'ENABLED');
+    const result = await setFormAvailability(JOTFORM_API_KEY, JOTFORM_FORM_ID, true);
     res.json({ success: true, result });
   } catch (e) {
     console.error(e);
@@ -125,7 +132,7 @@ cron.schedule('0 18 * * 5', async () => {
   console.log('Disabling form (Friday 6pm cutoff)...');
   try {
     const { JOTFORM_API_KEY, JOTFORM_FORM_ID } = process.env;
-    await setFormStatus(JOTFORM_API_KEY, JOTFORM_FORM_ID, 'DISABLED');
+    await setFormAvailability(JOTFORM_API_KEY, JOTFORM_FORM_ID, false);
     console.log('Form disabled successfully.');
   } catch (e) {
     console.error('Failed to disable form:', e.message);
@@ -138,7 +145,7 @@ cron.schedule('0 7 * * 1', async () => {
   console.log('Enabling form (Monday 7am reopen)...');
   try {
     const { JOTFORM_API_KEY, JOTFORM_FORM_ID } = process.env;
-    await setFormStatus(JOTFORM_API_KEY, JOTFORM_FORM_ID, 'ENABLED');
+    await setFormAvailability(JOTFORM_API_KEY, JOTFORM_FORM_ID, true);
     console.log('Form enabled successfully.');
   } catch (e) {
     console.error('Failed to enable form:', e.message);
