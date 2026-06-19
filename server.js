@@ -59,10 +59,10 @@ function getConfig() {
 async function setFormStatus(apiKey, formId, status) {
   const url = `https://api.jotform.com/form/${formId}/properties?apiKey=${apiKey}`;
   const params = new URLSearchParams();
-  params.append('status', status);
+  params.append('properties[status]', status);
   if (status === 'DISABLED') {
-    params.append('disableType', 'message');
-    params.append('disableMessage', 'Ordering for next week is now closed. Our form will reopen Monday at 7am so orders can be placed for the following week.');
+    params.append('properties[disableType]', 'message');
+    params.append('properties[disableMessage]', 'Ordering for next week is now closed. Our form will reopen Monday so orders can be placed for the following week.');
   }
   const r = await fetch(url, {
     method: 'POST',
