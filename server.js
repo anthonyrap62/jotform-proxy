@@ -56,11 +56,53 @@ function getConfig() {
   };
 }
 
+async function setFormStatus(apiKey, formId, status) {
+  const url = `https://api.jotform.com/form/${formId}/properties?apiKey=${apiKey}`;
+  const params = new URLSearchParams();
+  params.append('status', status);
+  if (status === 'DISABLED') {
+    params.append('disableType', 'message');
+    params.append('disableMessage', 'Ordering for next week is now closed. Our form will reopen Monday at 7am so orders can be placed for the following week.');
+  }
+  const r = await fetch(url, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+    body: params.toString()
+  });
+  const data = await r.json();
+  if (data.responseCode !== 200) {
+    throw new Error(`Failed to set form status to ${status}: ` + JSON.stringify(data));
+  }
+  return data;
+}
+
 app.get('/run-lunch-automation', async (req, res) => {
   try {
     const config = getConfig();
     const result = await runWeeklyLunchAutomation(config);
     res.json({ success: true, ...result });
+  } catch (e) {
+    console.error(e);
+    res.status(500).json({ success: false, error: e.message });
+  }
+});
+
+app.get('/disable-form', async (req, res) => {
+  try {
+    const { JOTFORM_API_KEY, JOTFORM_FORM_ID } = process.env;
+    const result = await setFormStatus(JOTFORM_API_KEY, JOTFORM_FORM_ID, 'DISABLED');
+    res.json({ success: true, result });
+  } catch (e) {
+    console.error(e);
+    res.status(500).json({ success: false, error: e.message });
+  }
+});
+
+app.get('/enable-form', async (req, res) => {
+  try {
+    const { JOTFORM_API_KEY, JOTFORM_FORM_ID } = process.env;
+    const result = await setFormStatus(JOTFORM_API_KEY, JOTFORM_FORM_ID, 'ENABLED');
+    res.json({ success: true, result });
   } catch (e) {
     console.error(e);
     res.status(500).json({ success: false, error: e.message });
@@ -80,4 +122,30 @@ cron.schedule('0 19 * * 5', async () => {
   timezone: 'America/New_York'
 });
 
-app.listen(PORT, () => console.log(`Server running on port ${PORT}. Scheduled job set for Fridays 7pm America/New_York.`));
+cron.schedule('0 18 * * 5', async () => {
+  console.log('Disabling form (Friday 6pm cutoff)...');
+  try {
+    const { JOTFORM_API_KEY, JOTFORM_FORM_ID } = process.env;
+    await setFormStatus(JOTFORM_API_KEY, JOTFORM_FORM_ID, 'DISABLED');
+    console.log('Form disabled successfully.');
+  } catch (e) {
+    console.error('Failed to disable form:', e.message);
+  }
+}, {
+  timezone: 'America/New_York'
+});
+
+cron.schedule('0 7 * * 1', async () => {
+  console.log('Enabling form (Monday 7am reopen)...');
+  try {
+    const { JOTFORM_API_KEY, JOTFORM_FORM_ID } = process.env;
+    await setFormStatus(JOTFORM_API_KEY, JOTFORM_FORM_ID, 'ENABLED');
+    console.log('Form enabled successfully.');
+  } catch (e) {
+    console.error('Failed to enable form:', e.message);
+  }
+}, {
+  timezone: 'America/New_York'
+});
+
+app.listen(PORT, () => console.log(`Server running on port ${PORT}. Scheduled jobs: Fri 6pm disable form, Fri 7pm send PDFs, Mon 7am enable form (America/New_York).`));
