@@ -157,14 +157,68 @@ function buildLabelsPDF(orders) {
   });
 }
 
-async function sendEmail({ resendApiKey, fromEmail, recipients, catererPdf, labelsPdf, orderCount }) {
+function buildDailyDistributionPDF(orders) {
+  return new Promise((resolve) => {
+    const doc = new PDFDocument({ margin: 50 });
+    const chunks = [];
+    doc.on('data', c => chunks.push(c));
+    doc.on('end', () => resolve(Buffer.concat(chunks)));
+
+    doc.fontSize(18).text('Daily Lunch Distribution List', { align: 'center' });
+    doc.fontSize(10).fillColor('gray').text(`Generated ${new Date().toLocaleDateString()}`, { align: 'center' });
+    doc.fillColor('black');
+
+    let firstDay = true;
+    DAYS.forEach(day => {
+      const dayOrders = orders.filter(o => o.meals[day]);
+      if (!dayOrders.length) return;
+
+      if (!firstDay) doc.addPage();
+      firstDay = false;
+
+      doc.fontSize(20).fillColor('#1d4ed8').text(day);
+      doc.moveDown(0.5);
+      doc.fillColor('black');
+
+      const byDivision = {};
+      dayOrders.forEach(o => {
+        const div = o.division || 'No Division';
+        if (!byDivision[div]) byDivision[div] = [];
+        byDivision[div].push(o);
+      });
+
+      Object.keys(byDivision).sort().forEach(div => {
+        doc.fontSize(13).fillColor('#444').text(div, { underline: true });
+        doc.moveDown(0.2);
+        doc.fontSize(11).fillColor('black');
+
+        byDivision[div]
+          .sort((a, b) => a.child.localeCompare(b.child))
+          .forEach(o => {
+            doc.text(`☐  ${o.child}`, { continued: true, indent: 15 });
+            doc.text(`   —   ${o.meals[day]}`, { align: 'left' });
+          });
+
+        doc.moveDown(0.6);
+      });
+    });
+
+    if (orders.length === 0) {
+      doc.fontSize(12).fillColor('gray').text('No orders found for this week.');
+    }
+
+    doc.end();
+  });
+}
+
+async function sendEmail({ resendApiKey, fromEmail, recipients, catererPdf, labelsPdf, distributionPdf, orderCount }) {
   const weekStr = new Date().toLocaleDateString();
 
   const payload = {
     from: fromEmail,
     to: recipients,
     subject: `Lunch Orders - Week of ${weekStr}`,
-    text: `This week's lunch orders are attached.\n\nTotal orders: ${orderCount}\n\n- Caterer summary PDF: meal counts by day\n- Labels PDF: printable Avery 5160 labels`,
+    text: `This week's lunch orders are attached.\n\nTotal orders: ${orderCount}\n\n- Caterer summary PDF: meal counts by day\n- Labels PDF: printable Avery 5160 labels\n- Daily Distribution List PDF: per-day, per-camper meal list for counselors`,
     attachments: [
       {
         filename: `caterer-summary-${weekStr.replace(/\//g, '-')}.pdf`,
@@ -173,6 +227,10 @@ async function sendEmail({ resendApiKey, fromEmail, recipients, catererPdf, labe
       {
         filename: `food-labels-${weekStr.replace(/\//g, '-')}.pdf`,
         content: labelsPdf.toString('base64')
+      },
+      {
+        filename: `daily-distribution-list-${weekStr.replace(/\//g, '-')}.pdf`,
+        content: distributionPdf.toString('base64')
       }
     ]
   };
@@ -207,16 +265,17 @@ async function runWeeklyLunchAutomation(config) {
   console.log(`Found ${orders.length} orders`);
 
   console.log('Building PDFs...');
-  const [catererPdf, labelsPdf] = await Promise.all([
+  const [catererPdf, labelsPdf, distributionPdf] = await Promise.all([
     buildCatererPDF(orders),
-    buildLabelsPDF(orders)
+    buildLabelsPDF(orders),
+    buildDailyDistributionPDF(orders)
   ]);
 
   console.log('Sending email via Resend...');
-  await sendEmail({ resendApiKey, fromEmail, recipients, catererPdf, labelsPdf, orderCount: orders.length });
+  await sendEmail({ resendApiKey, fromEmail, recipients, catererPdf, labelsPdf, distributionPdf, orderCount: orders.length });
 
   console.log('Done!');
   return { orderCount: orders.length };
 }
 
-module.exports = { runWeeklyLunchAutomation, fetchSubmissions, parseOrders, filterThisWeek, buildCatererPDF, buildLabelsPDF };
+module.exports = { runWeeklyLunchAutomation, fetchSubmissions, parseOrders, filterThisWeek, buildCatererPDF, buildLabelsPDF, buildDailyDistributionPDF };
