@@ -35,18 +35,10 @@ app.get('/jotform/submissions', async (req, res) => {
 app.get('/health', (req, res) => res.json({ status: 'ok' }));
 
 function getConfig() {
-  const {
-    JOTFORM_API_KEY,
-    JOTFORM_FORM_ID,
-    RESEND_API_KEY,
-    FROM_EMAIL,
-    RECIPIENT_EMAILS
-  } = process.env;
-
+  const { JOTFORM_API_KEY, JOTFORM_FORM_ID, RESEND_API_KEY, FROM_EMAIL, RECIPIENT_EMAILS } = process.env;
   if (!JOTFORM_API_KEY || !JOTFORM_FORM_ID || !RESEND_API_KEY || !FROM_EMAIL || !RECIPIENT_EMAILS) {
     throw new Error('Missing required environment variables. Check Railway Variables tab.');
   }
-
   return {
     jotformApiKey: JOTFORM_API_KEY,
     jotformFormId: JOTFORM_FORM_ID,
@@ -57,34 +49,42 @@ function getConfig() {
 }
 
 async function setFormAvailability(apiKey, formId, available) {
-  const url = `https://api.jotform.com/form/${formId}/properties?apiKey=${apiKey}`;
-  const params = new URLSearchParams();
+  const baseUrl = `https://api.jotform.com/form/${formId}/properties?apiKey=${apiKey}`;
 
-  params.append('properties[status]', 'ENABLED');
+  if (!available) {
+    // Step 1: Set the custom closed message first
+    const msgParams = new URLSearchParams();
+    msgParams.append('properties[messageOfLimitedForm]', 'Ordering for next week is now closed. Our form will reopen Monday so orders can be placed for the following week.');
+    await fetch(baseUrl, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: msgParams.toString()
+    });
 
-  if (available) {
-    // Clear expiration date entirely so form is fully open
-    params.append('properties[expireDate]', '');
-    params.append('properties[activeRedirect]', '');
+    // Step 2: Disable the form
+    const statusParams = new URLSearchParams();
+    statusParams.append('properties[status]', 'DISABLED');
+    const r = await fetch(baseUrl, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: statusParams.toString()
+    });
+    const data = await r.json();
+    if (data.responseCode !== 200) throw new Error('Failed to disable form: ' + JSON.stringify(data));
+    return data;
   } else {
-    // Set expiration to a moment in the past to trigger the custom message
-    const past = new Date(Date.now() - 60000);
-    const pad = n => String(n).padStart(2, '0');
-    const formatted = `${past.getFullYear()}-${pad(past.getMonth() + 1)}-${pad(past.getDate())} ${pad(past.getHours())}:${pad(past.getMinutes())}`;
-    params.append('properties[expireDate]', formatted);
-    params.append('properties[messageOfLimitedForm]', 'Ordering for next week is now closed. Our form will reopen Sunday so orders can be placed for the following week.');
+    // Enable the form
+    const params = new URLSearchParams();
+    params.append('properties[status]', 'ENABLED');
+    const r = await fetch(baseUrl, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: params.toString()
+    });
+    const data = await r.json();
+    if (data.responseCode !== 200) throw new Error('Failed to enable form: ' + JSON.stringify(data));
+    return data;
   }
-
-  const r = await fetch(url, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-    body: params.toString()
-  });
-  const data = await r.json();
-  if (data.responseCode !== 200) {
-    throw new Error(`Failed to set form availability: ` + JSON.stringify(data));
-  }
-  return data;
 }
 
 app.get('/run-lunch-automation', async (req, res) => {
@@ -129,9 +129,7 @@ cron.schedule('0 19 * * 5', async () => {
   } catch (e) {
     console.error('Scheduled run failed:', e.message);
   }
-}, {
-  timezone: 'America/New_York'
-});
+}, { timezone: 'America/New_York' });
 
 cron.schedule('0 18 * * 5', async () => {
   console.log('Disabling form (Friday 6pm cutoff)...');
@@ -142,9 +140,7 @@ cron.schedule('0 18 * * 5', async () => {
   } catch (e) {
     console.error('Failed to disable form:', e.message);
   }
-}, {
-  timezone: 'America/New_York'
-});
+}, { timezone: 'America/New_York' });
 
 cron.schedule('0 7 * * 1', async () => {
   console.log('Enabling form (Monday 7am reopen)...');
@@ -155,8 +151,6 @@ cron.schedule('0 7 * * 1', async () => {
   } catch (e) {
     console.error('Failed to enable form:', e.message);
   }
-}, {
-  timezone: 'America/New_York'
-});
+}, { timezone: 'America/New_York' });
 
 app.listen(PORT, () => console.log(`Server running on port ${PORT}. Scheduled jobs: Fri 6pm disable form, Fri 7pm send PDFs, Mon 7am enable form (America/New_York).`));
