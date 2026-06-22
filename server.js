@@ -60,14 +60,19 @@ async function setFormAvailability(apiKey, formId, available) {
   const url = `https://api.jotform.com/form/${formId}/properties?apiKey=${apiKey}`;
   const params = new URLSearchParams();
 
+  params.append('properties[status]', 'ENABLED');
+
   if (available) {
-    params.append('properties[expireDate]', '2099-12-31 23:59');
+    // Clear expiration date entirely so form is fully open
+    params.append('properties[expireDate]', '');
+    params.append('properties[activeRedirect]', '');
   } else {
+    // Set expiration to a moment in the past to trigger the custom message
     const past = new Date(Date.now() - 60000);
     const pad = n => String(n).padStart(2, '0');
     const formatted = `${past.getFullYear()}-${pad(past.getMonth() + 1)}-${pad(past.getDate())} ${pad(past.getHours())}:${pad(past.getMinutes())}`;
     params.append('properties[expireDate]', formatted);
-    params.append('properties[messageOfLimitedForm]', 'Ordering for next week is now closed. Our form will reopen Monday so orders can be placed for the following week.');
+    params.append('properties[messageOfLimitedForm]', 'Ordering for next week is now closed. Our form will reopen Sunday so orders can be placed for the following week.');
   }
 
   const r = await fetch(url, {
