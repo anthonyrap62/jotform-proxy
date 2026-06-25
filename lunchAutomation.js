@@ -51,7 +51,7 @@ function parseOrders(submissions) {
               (day === 'Thursday' && label.includes('thursday'))) {
             let mealText = toText(value);
             mealText = mealText.replace(/\s*\(?\$\d+(\.\d{1,2})?\)?\s*$/, '').trim();
-            if (mealText && mealText.toLowerCase() !== 'no meal' && mealText !== '-') {
+            if (mealText && mealText.toLowerCase() !== 'no meal' && mealText !== '-' && mealText.toLowerCase() !== 'not selected') {
               meals[day] = mealText;
             }
           }
@@ -97,7 +97,7 @@ function buildCatererPDF(orders, campName) {
       doc.moveDown(0.3);
       doc.fontSize(10).fillColor('black');
       allergies.forEach(o => {
-        doc.text(`${o.child}${o.age ? ' (Age ' + o.age + ')' : ''}: ${o.allergy}`);
+        doc.text(`${o.child}${o.age ? ' (Age ' + o.age + ')' : ''}${o.division ? ' — ' + o.division : ''}: ${o.allergy}`);
       });
       doc.moveDown(1);
       doc.fillColor('black');
@@ -143,7 +143,14 @@ function buildLabelsPDF(orders) {
     [...orders].sort((a, b) => (a.division + a.child).localeCompare(b.division + b.child))
       .forEach(o => {
         DAYS.forEach(d => {
-          if (o.meals[d]) labels.push({ child: o.child, division: o.division, age: o.age, allergy: o.allergy, day: d, meal: o.meals[d] });
+          if (o.meals[d]) labels.push({
+            child: o.child,
+            division: o.division,
+            age: o.age,
+            allergy: o.allergy,
+            day: d,
+            meal: o.meals[d]
+          });
         });
       });
 
@@ -163,11 +170,23 @@ function buildLabelsPDF(orders) {
       const y = marginTop + row * rowHeight;
 
       const l = labels[i];
-      doc.fontSize(10).fillColor('black').text(l.child, x + 8, y + 8, { width: colWidth - 16 });
-      const subLine = [l.division, l.age ? 'Age ' + l.age : ''].filter(Boolean).join(' · ');
-      if (subLine) doc.fontSize(8).fillColor('gray').text(subLine, x + 8, y + 22, { width: colWidth - 16 });
-      doc.fontSize(9).fillColor('#1d4ed8').text(`${l.day}: ${l.meal}`, x + 8, y + 35, { width: colWidth - 16 });
-      if (l.allergy) doc.fontSize(8).fillColor('#dc2626').text(`⚠ ${l.allergy}`, x + 8, y + 48, { width: colWidth - 16 });
+
+      // Line 1: Camper name
+      doc.fontSize(10).fillColor('black').text(l.child, x + 8, y + 6, { width: colWidth - 16 });
+
+      // Line 2: Division · Age
+      const subParts = [l.division, l.age ? 'Age ' + l.age : ''].filter(Boolean);
+      if (subParts.length) {
+        doc.fontSize(8).fillColor('#555').text(subParts.join(' · '), x + 8, y + 20, { width: colWidth - 16 });
+      }
+
+      // Line 3: Day and meal
+      doc.fontSize(9).fillColor('#1d4ed8').text(`${l.day}: ${l.meal}`, x + 8, y + 33, { width: colWidth - 16 });
+
+      // Line 4: Allergy warning
+      if (l.allergy) {
+        doc.fontSize(8).fillColor('#dc2626').text(`⚠ ${l.allergy}`, x + 8, y + 47, { width: colWidth - 16 });
+      }
 
       i++;
     }
@@ -199,6 +218,7 @@ function buildDailyDistributionPDF(orders, campName) {
       if (!firstDay) doc.addPage();
       firstDay = false;
 
+      doc.moveDown(0.5);
       doc.fontSize(20).fillColor('#1d4ed8').text(day);
       doc.moveDown(0.5);
       doc.fillColor('black');
@@ -218,9 +238,13 @@ function buildDailyDistributionPDF(orders, campName) {
         byDivision[div]
           .sort((a, b) => a.child.localeCompare(b.child))
           .forEach(o => {
-            const details = [o.age ? 'Age ' + o.age : '', o.allergy ? '⚠ ' + o.allergy : ''].filter(Boolean).join(' | ');
-            doc.text(`☐  ${o.child}`, { continued: true, indent: 15 });
-            doc.text(`   —   ${o.meals[day]}${details ? '   (' + details + ')' : ''}`, { align: 'left' });
+            const details = [
+              o.age ? 'Age ' + o.age : '',
+              o.allergy ? '⚠ ' + o.allergy : ''
+            ].filter(Boolean).join(' | ');
+
+            const line = `☐  ${o.child}   —   ${day}: ${o.meals[day]}${details ? '   (' + details + ')' : ''}`;
+            doc.text(line, { indent: 15 });
           });
 
         doc.moveDown(0.6);
