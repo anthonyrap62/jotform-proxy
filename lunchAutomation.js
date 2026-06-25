@@ -16,7 +16,7 @@ function parseOrders(submissions) {
 
   for (const sub of submissions) {
     const answers = sub.answers || {};
-    let child = '', division = '';
+    let child = '', division = '', age = '', allergy = '';
     const meals = {};
 
     for (const key in answers) {
@@ -37,9 +37,18 @@ function parseOrders(submissions) {
         child = toText(value);
       } else if (label.includes("division")) {
         division = toText(value);
+      } else if (label.includes("camper") && label.includes("age")) {
+        age = toText(value);
+      } else if (label.includes("allerg") && !label.includes("list") && !label.includes("please")) {
+        const v = toText(value).toLowerCase();
+        if (v === 'no' || v === '') allergy = '';
+      } else if ((label.includes("list") || label.includes("please list")) && label.includes("allerg")) {
+        const v = toText(value);
+        if (v) allergy = v;
       } else {
         for (const day of DAYS) {
-          if (label.startsWith(day.toLowerCase())) {
+          if (label.startsWith(day.toLowerCase()) ||
+              (day === 'Thursday' && label.includes('thursday'))) {
             let mealText = toText(value);
             mealText = mealText.replace(/\s*\(?\$\d+(\.\d{1,2})?\)?\s*$/, '').trim();
             if (mealText && mealText.toLowerCase() !== 'no meal' && mealText !== '-') {
@@ -51,7 +60,7 @@ function parseOrders(submissions) {
     }
 
     if (child && Object.keys(meals).length > 0) {
-      orders.push({ child: child.trim(), division: division.trim(), meals });
+      orders.push({ child: child.trim(), division: division.trim(), age: age.trim(), allergy: allergy.trim(), meals });
     }
   }
 
@@ -70,17 +79,29 @@ function filterThisWeek(submissions) {
   });
 }
 
-function buildCatererPDF(orders) {
+function buildCatererPDF(orders, campName) {
   return new Promise((resolve) => {
     const doc = new PDFDocument({ margin: 50 });
     const chunks = [];
     doc.on('data', c => chunks.push(c));
     doc.on('end', () => resolve(Buffer.concat(chunks)));
 
-    doc.fontSize(18).text('Weekly Lunch Order - Caterer Summary', { align: 'center' });
+    doc.fontSize(18).text(`${campName || 'Weekly'} Lunch Order - Caterer Summary`, { align: 'center' });
     doc.fontSize(10).fillColor('gray').text(`Generated ${new Date().toLocaleDateString()}`, { align: 'center' });
     doc.moveDown(1.5);
     doc.fillColor('black');
+
+    const allergies = orders.filter(o => o.allergy);
+    if (allergies.length > 0) {
+      doc.fontSize(13).fillColor('#dc2626').text('⚠ ALLERGY ALERTS', { underline: true });
+      doc.moveDown(0.3);
+      doc.fontSize(10).fillColor('black');
+      allergies.forEach(o => {
+        doc.text(`${o.child}${o.age ? ' (Age ' + o.age + ')' : ''}: ${o.allergy}`);
+      });
+      doc.moveDown(1);
+      doc.fillColor('black');
+    }
 
     const byDay = {};
     DAYS.forEach(d => byDay[d] = {});
@@ -122,7 +143,7 @@ function buildLabelsPDF(orders) {
     [...orders].sort((a, b) => (a.division + a.child).localeCompare(b.division + b.child))
       .forEach(o => {
         DAYS.forEach(d => {
-          if (o.meals[d]) labels.push({ child: o.child, division: o.division, day: d, meal: o.meals[d] });
+          if (o.meals[d]) labels.push({ child: o.child, division: o.division, age: o.age, allergy: o.allergy, day: d, meal: o.meals[d] });
         });
       });
 
@@ -142,9 +163,11 @@ function buildLabelsPDF(orders) {
       const y = marginTop + row * rowHeight;
 
       const l = labels[i];
-      doc.fontSize(10).fillColor('black').text(l.child, x + 8, y + 10, { width: colWidth - 16 });
-      doc.fontSize(8).fillColor('gray').text(l.division, x + 8, y + 26, { width: colWidth - 16 });
-      doc.fontSize(9).fillColor('#1d4ed8').text(`${l.day}: ${l.meal}`, x + 8, y + 40, { width: colWidth - 16 });
+      doc.fontSize(10).fillColor('black').text(l.child, x + 8, y + 8, { width: colWidth - 16 });
+      const subLine = [l.division, l.age ? 'Age ' + l.age : ''].filter(Boolean).join(' · ');
+      if (subLine) doc.fontSize(8).fillColor('gray').text(subLine, x + 8, y + 22, { width: colWidth - 16 });
+      doc.fontSize(9).fillColor('#1d4ed8').text(`${l.day}: ${l.meal}`, x + 8, y + 35, { width: colWidth - 16 });
+      if (l.allergy) doc.fontSize(8).fillColor('#dc2626').text(`⚠ ${l.allergy}`, x + 8, y + 48, { width: colWidth - 16 });
 
       i++;
     }
@@ -157,14 +180,14 @@ function buildLabelsPDF(orders) {
   });
 }
 
-function buildDailyDistributionPDF(orders) {
+function buildDailyDistributionPDF(orders, campName) {
   return new Promise((resolve) => {
     const doc = new PDFDocument({ margin: 50 });
     const chunks = [];
     doc.on('data', c => chunks.push(c));
     doc.on('end', () => resolve(Buffer.concat(chunks)));
 
-    doc.fontSize(18).text('Daily Lunch Distribution List', { align: 'center' });
+    doc.fontSize(18).text(`${campName || ''} Daily Lunch Distribution List`, { align: 'center' });
     doc.fontSize(10).fillColor('gray').text(`Generated ${new Date().toLocaleDateString()}`, { align: 'center' });
     doc.fillColor('black');
 
@@ -182,7 +205,7 @@ function buildDailyDistributionPDF(orders) {
 
       const byDivision = {};
       dayOrders.forEach(o => {
-        const div = o.division || 'No Division';
+        const div = o.division || 'General';
         if (!byDivision[div]) byDivision[div] = [];
         byDivision[div].push(o);
       });
@@ -195,8 +218,9 @@ function buildDailyDistributionPDF(orders) {
         byDivision[div]
           .sort((a, b) => a.child.localeCompare(b.child))
           .forEach(o => {
+            const details = [o.age ? 'Age ' + o.age : '', o.allergy ? '⚠ ' + o.allergy : ''].filter(Boolean).join(' | ');
             doc.text(`☐  ${o.child}`, { continued: true, indent: 15 });
-            doc.text(`   —   ${o.meals[day]}`, { align: 'left' });
+            doc.text(`   —   ${o.meals[day]}${details ? '   (' + details + ')' : ''}`, { align: 'left' });
           });
 
         doc.moveDown(0.6);
@@ -211,14 +235,14 @@ function buildDailyDistributionPDF(orders) {
   });
 }
 
-async function sendEmail({ resendApiKey, fromEmail, recipients, catererPdf, labelsPdf, distributionPdf, orderCount }) {
+async function sendEmail({ resendApiKey, fromEmail, recipients, catererPdf, labelsPdf, distributionPdf, orderCount, campName }) {
   const weekStr = new Date().toLocaleDateString();
 
   const payload = {
     from: fromEmail,
     to: recipients,
-    subject: `Lunch Orders - Week of ${weekStr}`,
-    text: `This week's lunch orders are attached.\n\nTotal orders: ${orderCount}\n\n- Caterer summary PDF: meal counts by day\n- Labels PDF: printable Avery 5160 labels\n- Daily Distribution List PDF: per-day, per-camper meal list for counselors`,
+    subject: `${campName || 'Lunch'} Orders - Week of ${weekStr}`,
+    text: `${campName || 'Lunch'} orders for the week of ${weekStr} are attached.\n\nTotal orders: ${orderCount}\n\n- Caterer summary PDF: meal counts by day + allergy alerts\n- Labels PDF: printable Avery 5160 labels\n- Daily Distribution List PDF: per-day, per-camper meal list for counselors`,
     attachments: [
       {
         filename: `caterer-summary-${weekStr.replace(/\//g, '-')}.pdf`,
@@ -245,36 +269,34 @@ async function sendEmail({ resendApiKey, fromEmail, recipients, catererPdf, labe
   });
 
   const result = await r.json();
-  if (!r.ok) {
-    throw new Error('Resend error: ' + JSON.stringify(result));
-  }
+  if (!r.ok) throw new Error('Resend error: ' + JSON.stringify(result));
   return result;
 }
 
 async function runWeeklyLunchAutomation(config) {
-  const { jotformApiKey, jotformFormId, resendApiKey, fromEmail, recipients } = config;
+  const { jotformApiKey, jotformFormId, resendApiKey, fromEmail, recipients, campName } = config;
 
-  console.log('Fetching submissions...');
+  console.log(`[${campName || 'Camp'}] Fetching submissions...`);
   const allSubs = await fetchSubmissions(jotformApiKey, jotformFormId);
 
-  console.log('Filtering to this week...');
+  console.log(`[${campName || 'Camp'}] Filtering to this week...`);
   const thisWeek = filterThisWeek(allSubs);
 
-  console.log('Parsing orders...');
+  console.log(`[${campName || 'Camp'}] Parsing orders...`);
   const orders = parseOrders(thisWeek);
-  console.log(`Found ${orders.length} orders`);
+  console.log(`[${campName || 'Camp'}] Found ${orders.length} orders`);
 
-  console.log('Building PDFs...');
+  console.log(`[${campName || 'Camp'}] Building PDFs...`);
   const [catererPdf, labelsPdf, distributionPdf] = await Promise.all([
-    buildCatererPDF(orders),
+    buildCatererPDF(orders, campName),
     buildLabelsPDF(orders),
-    buildDailyDistributionPDF(orders)
+    buildDailyDistributionPDF(orders, campName)
   ]);
 
-  console.log('Sending email via Resend...');
-  await sendEmail({ resendApiKey, fromEmail, recipients, catererPdf, labelsPdf, distributionPdf, orderCount: orders.length });
+  console.log(`[${campName || 'Camp'}] Sending email via Resend...`);
+  await sendEmail({ resendApiKey, fromEmail, recipients, catererPdf, labelsPdf, distributionPdf, orderCount: orders.length, campName });
 
-  console.log('Done!');
+  console.log(`[${campName || 'Camp'}] Done!`);
   return { orderCount: orders.length };
 }
 
